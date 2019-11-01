@@ -13,19 +13,19 @@ public class SwiftFlutterBranchIoPlugin: NSObject, FlutterPlugin, FlutterStreamH
     let instance = SwiftFlutterBranchIoPlugin()
     generatedLinkChannel.setStreamHandler(instance)
     registrar.addMethodCallDelegate(instance, channel: channel)
-    
+    registrar.addApplicationDelegate(instance)
   }
-    
+
   public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
       self.generatedLinkSink = events
       return nil
   }
-    
+
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
       self.generatedLinkSink = nil
       return nil
   }
-    
+
   func convertToDictionary(text: String) -> [String: Any]? {
     if let data = text.data(using: .utf8) {
       do {
@@ -36,7 +36,7 @@ public class SwiftFlutterBranchIoPlugin: NSObject, FlutterPlugin, FlutterStreamH
    }
    return nil
   }
-    
+
   func convertStringToBUO(text: String) -> BranchUniversalObject? {
     let dict: [String: Any]? = convertToDictionary(text: text)
     if (dict == nil) { return nil }
@@ -51,7 +51,7 @@ public class SwiftFlutterBranchIoPlugin: NSObject, FlutterPlugin, FlutterStreamH
             print("Generated Link Sink is nil")
         }
     }
-    
+
   private func generateLink(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = call.arguments as? [String: Any?]
     let buoJson = args?["buoJson"] as? String?
@@ -60,9 +60,9 @@ public class SwiftFlutterBranchIoPlugin: NSObject, FlutterPlugin, FlutterStreamH
     let lpCampaign = args?["lp_campaign"] as? String?
     let lpStage = args?["lp_stage"] as? String?
     let lpParams = args?["lp_control_params"] as? [String: Any?]?
-    
+
     let buo: BranchUniversalObject? = convertStringToBUO(text: buoJson!!)
-    
+
     let lp: BranchLinkProperties = BranchLinkProperties()
     if (lpChannel != nil) {
         lp.channel = lpChannel as! String
@@ -81,43 +81,43 @@ public class SwiftFlutterBranchIoPlugin: NSObject, FlutterPlugin, FlutterStreamH
             lp.addControlParam(param.key, withValue: param.value as? String)
         }
     }
-    
+
     buo?.getShortUrl(with: lp) { (url, error) in
         self.sendUrlToSink(url: url!)
     }
     result("Success generating Link!")
-    
+
   }
-    
+
   private func listOnGoogleSearch(call: FlutterMethodCall, result: @escaping FlutterResult) {
     result("Cannot list on Google Search on iOS")
   }
-    
+
   private func trackContent(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = call.arguments as? [String: Any?]
     let buoJson = args?["buoJson"] as! String?
-    
+
     let buo: BranchUniversalObject? = convertStringToBUO(text: buoJson!)
     if (buo == nil) { return }
     BranchEvent.standardEvent(.viewItem, withContentItem: buo!).logEvent()
     result("Success Log Event")
   }
-    
+
   private func setUserIdentity(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = call.arguments as? [String: Any?]
     let userId = args?["userId"] as! String?
     Branch.getInstance()?.setIdentity(userId)
   }
-    
+
   private func clearUserIdentity(call: FlutterMethodCall, result: @escaping FlutterResult) {
     Branch.getInstance()?.logout()
   }
-    
+
   private func getLatestParam(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let latestParams = Branch.getInstance()?.getLatestReferringParams()
     result(latestParams)
   }
-    
+
   private func getFirstParam(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let firstParams = Branch.getInstance()?.getFirstReferringParams()
     result(firstParams)
@@ -154,4 +154,47 @@ public class SwiftFlutterBranchIoPlugin: NSObject, FlutterPlugin, FlutterStreamH
             result("iOS " + UIDevice.current.systemVersion)
     }
   }
+  override func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+  ) -> Bool {
+    guard let controller = window?.rootViewController as? FlutterViewController else {
+          fatalError("rootViewController cannot be casted to FlutterViewController")
+      }
+      Branch.getInstance()?.initSession(launchOptions: launchOptions) { (params, error) in
+              // do stuff with deep link data (nav to page, display content, etc)
+              print(params as? [String: AnyObject] ?? {})
+              if (self.generatedLinkSink != nil) {
+                  do {
+                      let jsonData = try JSONSerialization.data(withJSONObject: params, options: .prettyPrinted)
+                      let jsonString = String(data: jsonData, encoding: String.Encoding.utf8)
+                      self.generatedLinkSink!(jsonString)
+
+                  } catch {
+                      print("BRANCH IO FLUTTER IOS ERROR")
+                      print(error)
+                  }
+              } else {
+                  print("Branch IO eventSink is nil")
+              }
+          }
+  }
+
+  override func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
+      Branch.getInstance()?.application(app, open: url, options: options)
+      return true
+  }
+
+  override  func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+      // handler for Push Notifications
+      Branch.getInstance()?.handlePushNotification(userInfo)
+  }
+
+  override  func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+      // handler for Universal Links
+      Branch.getInstance()?.continue(userActivity)
+      return true
+  }
+
+
 }
